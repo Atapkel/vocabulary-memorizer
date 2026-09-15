@@ -350,11 +350,14 @@ def card_front_text(w):
     prompt = w.get("translation") if production else w.get("word")
     prompt_label = "Kazakh meaning" if production else "Word"
     expected = "the foreign word" if production else "the Kazakh meaning"
-    context = "" if production else f"💬 {highlight_context(w.get('context'), w['word'])}\n\n"
+    # Put a concise example on the question side. Imported/generated examples
+    # are preferred; source context remains a useful fallback for older cards.
+    example_sentence = w.get("example") or w.get("context")
+    context = "" if production or not example_sentence else f"💬 {highlight_context(example_sentence, w['word'])}\n\n"
     return (
         f"🧠 <b>REVIEW</b> · {flag} <i>{esc(w['state'])}</i>\n{priority}\n"
         f"<b>{esc(prompt)}</b>\n<i>{prompt_label}</i>\n\n"
-        f"{context}<i>Type {expected} from memory.</i>"
+        f"{context}<i>Recall {expected} from memory, then reveal it.</i>"
     )
 
 
@@ -384,9 +387,9 @@ def rating_keyboard(word_id, review):
     ])
 
 
-def show_answer_keyboard(word_id):
+def reveal_answer_keyboard(word_id):
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("⌨️ Type answer", callback_data=f"show|{word_id}")],
+        [InlineKeyboardButton("👁️ Reveal answer", callback_data=f"reveal|{word_id}")],
         [InlineKeyboardButton("🏠 Menu", callback_data="menu|home")],
     ])
 
@@ -506,7 +509,7 @@ async def send_next_card(message_edit_target):
         await message_edit_target(text, reply_markup=main_keyboard(), parse_mode=ParseMode.HTML)
         return
     w = due[0]
-    await message_edit_target(card_front_text(w), reply_markup=show_answer_keyboard(w["id"]), parse_mode=ParseMode.HTML)
+    await message_edit_target(card_front_text(w), reply_markup=reveal_answer_keyboard(w["id"]), parse_mode=ParseMode.HTML)
 
 
 # ---------------------------------------------------------------- guards --
@@ -811,15 +814,14 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     word_id = data[1]
 
-    if action == "show":
+    if action == "reveal":
         w = get_word_with_review(word_id)
         if not w:
             await edit("That word no longer exists.")
             return
-        context.user_data["awaiting_answer"] = {"word_id": word_id}
         await edit(
-            card_front_text(w) + "\n\n✍️ <b>Send your answer as a message now.</b>",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 Cancel", callback_data="menu|home")]]),
+            card_back_text(w),
+            reply_markup=rating_keyboard(w["id"], w),
             parse_mode=ParseMode.HTML,
         )
     elif action == "rate":

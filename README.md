@@ -4,8 +4,8 @@ Private Telegram vocabulary review for English and Russian cards whose default
 meaning language is Kazakh. The bot stores its primary spaced-repetition history
 in SQLite and accepts manual exports from local Word Studio.
 
-Every review requires a typed answer before the correct answer and grading buttons
-appear. After early recognition practice, cards alternate between recalling the
+Every review lets you reveal the correct answer and then grade your recall. After
+early recognition practice, cards alternate between recalling the
 Kazakh meaning and producing the English/Russian word. Scheduling remains
 automatic: forgotten cards return sooner and remembered cards gradually move
 farther away. The learner never needs to choose or see an interval.
