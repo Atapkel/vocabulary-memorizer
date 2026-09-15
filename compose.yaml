@@ -1,0 +1,12 @@
+services:
+  word-box:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      VOCAB_DB_PATH: /data/vocab.db
+    volumes:
+      - word_box_data:/data
+
+volumes:
+  word_box_data:
