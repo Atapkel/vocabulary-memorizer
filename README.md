@@ -4,9 +4,11 @@ Private Telegram vocabulary review for English and Russian cards whose default
 meaning language is Kazakh. The bot stores its primary spaced-repetition history
 in SQLite and accepts manual exports from local Word Studio.
 
-Reviews use only **I know** and **I don't know**. Scheduling is automatic:
-forgotten cards return sooner and remembered cards gradually move farther away.
-The learner never needs to choose or see an interval.
+Every review requires a typed answer before the correct answer and grading buttons
+appear. After early recognition practice, cards alternate between recalling the
+Kazakh meaning and producing the English/Russian word. Scheduling remains
+automatic: forgotten cards return sooner and remembered cards gradually move
+farther away. The learner never needs to choose or see an interval.
 
 ## Configure and run
 
@@ -66,3 +68,6 @@ before normal and low-priority cards.
 - `/prompt word1, word2` — create a ChatGPT prompt for context-free words
 - `/stats` — progress counts
 - `/list` — first 30 cards ordered by due time
+- `/leeches` — suspended cards that have been missed repeatedly
+- `/note WORD_ID text` — save a personal mnemonic or memory hook
+- `/reset WORD_ID` — reset a suspended card to new after improving it
