@@ -188,6 +188,18 @@ def get_word_with_review(word_id):
     return dict(row) if row else None
 
 
+def get_game_cards(limit=4):
+    """Random active cards for play; games deliberately do not change SRS data."""
+    conn = get_conn()
+    rows = conn.execute(
+        """SELECT w.*, r.state, r.direction FROM words w JOIN reviews r ON w.id=r.word_id
+           WHERE r.state != 'suspended' AND w.translation != ''
+           ORDER BY RANDOM() LIMIT ?""", (limit,)
+    ).fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
 def save_review(word_id, r):
     conn = get_conn()
     conn.execute(
@@ -386,6 +398,7 @@ def main_keyboard():
         [InlineKeyboardButton("📊 Progress", callback_data="menu|stats"),
          InlineKeyboardButton("➕ Import", callback_data="menu|add")],
         [InlineKeyboardButton("🪲 Leeches", callback_data="menu|leeches")],
+        [InlineKeyboardButton("🎮 Word games", callback_data="menu|game")],
     ])
 
 
@@ -432,6 +445,34 @@ def answer_feedback(answer, w):
         f"<i>Grade your recall honestly, then continue.</i>\n\n"
         f"{card_back_text(w)}"
     )[:3900]
+
+
+def game_round(cards, round_number):
+    """Create either a meaning match or a context-based find-the-word round."""
+    target = cards[0]
+    choices = cards[:]
+    # Alternate modes so a short game practises both meanings and contextual use.
+    mode = "find" if round_number % 2 and target.get("context") else "match"
+    if mode == "find":
+        blank = re.sub(re.escape(target["word"]), "_____", target["context"], count=1, flags=re.IGNORECASE)
+        prompt = (
+            "🔎 <b>Find the word</b>\n\n"
+            f"{esc(blank)}\n\n"
+            f"🇰🇿 Hint: <b>{esc(target['translation'])}</b>\n\n"
+            "Which word completes the sentence?"
+        )
+        label = lambda card: card["word"]
+    else:
+        prompt = (
+            "🧩 <b>Quick match</b>\n\n"
+            f"What is the Kazakh meaning of <b>{esc(target['word'])}</b>?"
+        )
+        label = lambda card: card["translation"]
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(str(label(card))[:60], callback_data=f"game|{target['id']}|{card['id']}")]
+        for card in choices
+    ] + [[InlineKeyboardButton("🏠 Finish game", callback_data="menu|home")]])
+    return target, prompt, keyboard
 
 
 def chatgpt_prompt(words):
@@ -590,6 +631,27 @@ async def cmd_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_next_card(update.message.reply_text)
 
 
+async def start_game(context: ContextTypes.DEFAULT_TYPE, reply_fn):
+    cards = get_game_cards()
+    if len(cards) < 2:
+        await reply_fn("Add at least two active cards before playing a game.", reply_markup=main_keyboard())
+        return
+    context.user_data["game"] = {"score": 0, "round": 0}
+    target, prompt, keyboard = game_round(cards, 0)
+    context.user_data["game"]["target_id"] = target["id"]
+    await reply_fn(
+        "🎮 <b>Word sprint</b> · Score: <b>0</b>\n"
+        "<i>Match meanings and complete contexts. Game scores never change your review schedule.</i>\n\n" + prompt,
+        reply_markup=keyboard, parse_mode=ParseMode.HTML,
+    )
+
+
+async def cmd_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not authorized(update):
+        return
+    await start_game(context, update.message.reply_text)
+
+
 async def cmd_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not authorized(update):
         return
@@ -701,9 +763,50 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "\n\nUse <code>/note WORD_ID text</code>, then <code>/reset WORD_ID</code> when ready.",
                 main_keyboard(), ParseMode.HTML,
             )
+        elif destination == "game":
+            await start_game(context, edit)
         else:
             context.user_data["awaiting_import"] = True
             await edit("➕ <b>Import cards</b>\n\nSend a Word Studio JSON file (maximum 2 MB).", main_keyboard(), ParseMode.HTML)
+        return
+
+    if action == "game":
+        game = context.user_data.get("game")
+        if not game:
+            await edit("That game has finished. Start a new one with /game.", main_keyboard(), ParseMode.HTML)
+            return
+        if len(data) == 2 and data[1] == "next":
+            cards = get_game_cards()
+            if len(cards) < 2:
+                await edit("Not enough active cards to continue.", main_keyboard())
+                return
+            target, prompt, keyboard = game_round(cards, game["round"])
+            game["target_id"] = target["id"]
+            await edit(
+                f"🎮 <b>Word sprint</b> · Score: <b>{game['score']}</b>\n\n{prompt}",
+                keyboard, ParseMode.HTML,
+            )
+            return
+        if len(data) != 3 or data[1] != game.get("target_id"):
+            await edit("That round expired. Start a new game with /game.", main_keyboard(), ParseMode.HTML)
+            return
+        target = get_word_with_review(data[1])
+        if not target:
+            await edit("That card no longer exists.", main_keyboard())
+            return
+        correct = data[2] == data[1]
+        if correct:
+            game["score"] += 1
+        game["round"] += 1
+        verdict = "🎉 <b>Correct!</b>" if correct else "💡 <b>Almost — here is the match.</b>"
+        await edit(
+            f"{verdict}\n\n<b>{esc(target['word'])}</b> → 🇰🇿 <b>{esc(target['translation'])}</b>\n\n"
+            f"Score: <b>{game['score']}</b> · Round: <b>{game['round']}</b>",
+            InlineKeyboardMarkup([
+                [InlineKeyboardButton("▶️ Next round", callback_data="game|next")],
+                [InlineKeyboardButton("🏠 Finish game", callback_data="menu|home")],
+            ]), ParseMode.HTML,
+        )
         return
 
     word_id = data[1]
@@ -749,6 +852,7 @@ def main():
     app.add_handler(CommandHandler("reset", cmd_reset))
     app.add_handler(CommandHandler("review", cmd_review))
     app.add_handler(CommandHandler("learn", cmd_review))
+    app.add_handler(CommandHandler("game", cmd_game))
     app.add_handler(CommandHandler("add", cmd_add))
     app.add_handler(CommandHandler("prompt", cmd_prompt))
     app.add_handler(MessageHandler(filters.Document.ALL, on_document))

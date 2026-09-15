@@ -68,6 +68,7 @@ before normal and low-priority cards.
 - `/prompt word1, word2` — create a ChatGPT prompt for context-free words
 - `/stats` — progress counts
 - `/list` — first 30 cards ordered by due time
+- `/game` — play quick meaning-match and context word-finding rounds
 - `/leeches` — suspended cards that have been missed repeatedly
 - `/note WORD_ID text` — save a personal mnemonic or memory hook
 - `/reset WORD_ID` — reset a suspended card to new after improving it
