@@ -48,6 +48,33 @@ def inbox_count(kind: str) -> int:
         return conn.execute("SELECT COUNT(*) FROM inbox WHERE kind=?", (kind,)).fetchone()[0]
 
 
+def unknown_words(limit: int = 20) -> list[dict]:
+    """Newest saved unknown words, for the inbox screen."""
+    with db() as conn:
+        return [dict(row) for row in conn.execute(
+            "SELECT id, content FROM inbox WHERE kind='word' ORDER BY id DESC LIMIT ?", (limit,)
+        )]
+
+
+def delete_unknown(word: str) -> int:
+    """Delete an inbox entry by its word or phrase; learned cards are untouched."""
+    normalized = " ".join(word.split()).casefold()
+    if not normalized:
+        return 0
+    with db() as conn:
+        rows = conn.execute("SELECT id, content FROM inbox WHERE kind='word'").fetchall()
+        ids = [(row["id"],) for row in rows if row["content"].casefold() == normalized]
+        conn.executemany("DELETE FROM inbox WHERE id=?", ids)
+        return len(ids)
+
+
+def delete_unknown_by_id(item_id: int) -> bool:
+    with db() as conn:
+        return bool(conn.execute(
+            "DELETE FROM inbox WHERE id=? AND kind='word'", (item_id,)
+        ).rowcount)
+
+
 def remove_inbox(kind: str, items: list[str]) -> None:
     with db() as conn:
         conn.executemany("DELETE FROM inbox WHERE kind=? AND content=?", [(kind, i) for i in items])

@@ -5,9 +5,35 @@ from difflib import SequenceMatcher
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from .config import MAX_CONTEXT, MAX_WORD, ANSWER_MATCH_THRESHOLD
 from .storage import get_counts
+from .memory import due_counts, inbox_count
 
 def esc(s):
     return html.escape(str(s)) if s else ""
+
+
+def esc_limit(value, limit: int):
+    """Escape user text while staying within a Telegram message budget."""
+    output = []
+    used = 0
+    for char in str(value or ""):
+        escaped = html.escape(char)
+        if used + len(escaped) > limit - 1:
+            return "".join(output) + "…"
+        output.append(escaped)
+        used += len(escaped)
+    return "".join(output)
+
+
+def fit_html_sections(sections, limit=3900):
+    """Keep complete HTML sections so Telegram never receives a cut tag."""
+    result = []
+    length = 0
+    for section in sections:
+        if length + len(section) + (1 if result else 0) > limit:
+            continue
+        result.append(section)
+        length += len(section) + (1 if len(result) > 1 else 0)
+    return "\n".join(result)
 
 
 def highlight_context(context, word):
@@ -25,7 +51,7 @@ def highlight_context(context, word):
 
 def card_front_text(w):
     flag = "🇷🇺" if w.get("target_language") == "russian" else "🇬🇧"
-    priority = "🔥 <b>HIGH PRIORITY</b>\n" if w.get("priority") == "high" else ""
+    priority = "🔥 <b>High priority</b>\n" if w.get("priority") == "high" else ""
     production = w.get("direction") == "production"
     prompt = w.get("translation") if production else w.get("word")
     prompt_label = "Kazakh meaning" if production else "Word"
@@ -33,17 +59,19 @@ def card_front_text(w):
     # Put a concise example on the question side. Imported/generated examples
     # are preferred; source context remains a useful fallback for older cards.
     example_sentence = w.get("example") or w.get("context")
-    context = "" if production or not example_sentence else f"💬 {highlight_context(example_sentence, w['word'])}\n\n"
+    context = "" if production or not example_sentence else f"💬 <i>{highlight_context(example_sentence, w['word'])}</i>\n\n"
     return (
-        f"🧠 <b>REVIEW</b> · {flag} <i>{esc(w['state'])}</i>\n{priority}\n"
-        f"<b>{esc(prompt)}</b>\n<i>{prompt_label}</i>\n\n"
-        f"{context}<i>Recall {expected} from memory, then reveal it.</i>"
+        f"🧠 <b>WORD REVIEW</b>  {flag}\n"
+        f"<i>{esc(w['state']).capitalize()} card</i>\n\n"
+        f"{priority}❓ <b>{esc(prompt)}</b>\n"
+        f"<i>{prompt_label}</i>\n\n"
+        f"{context}💭 <i>Recall {expected} before revealing the answer.</i>"
     )
 
 
 def card_back_text(w):
     flag = "🇷🇺" if w.get("target_language") == "russian" else "🇬🇧"
-    lines = [f"🧠 <b>ANSWER</b> · {flag}", "", f"<b>{esc(w['word'])}</b>", ""]
+    lines = [f"✅ <b>WORD ANSWER</b>  {flag}", "", f"🔤 <b>{esc(w['word'])}</b>", ""]
     if w.get("translation"):
         lines.append(f"🇰🇿 <b>Kazakh meaning</b>\n{esc(w['translation'])}")
     if w.get("explanation"):
@@ -56,48 +84,99 @@ def card_back_text(w):
         lines.append(f"\n🔗 <b>Related words</b>\n{esc(w['synonyms'])}")
     if w.get("note"):
         lines.append(f"\n📝 <b>My note</b>\n{esc(w['note'])}")
-    return "\n".join(lines)[:3900]
+    return fit_html_sections(lines)
 
 
 def rating_keyboard(word_id, review):
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("❌ I don’t know", callback_data=f"rate|{word_id}|dont_know"),
-         InlineKeyboardButton("✅ I know", callback_data=f"rate|{word_id}|know")],
-        [InlineKeyboardButton("🏠 Menu", callback_data="menu|home")],
+        [InlineKeyboardButton("🔁 Study again", callback_data=f"rate|{word_id}|dont_know"),
+         InlineKeyboardButton("✅ Remembered", callback_data=f"rate|{word_id}|know")],
+        [InlineKeyboardButton("🏠 Main menu", callback_data="menu|home")],
     ])
 
 
 def reveal_answer_keyboard(word_id):
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("👁️ Reveal answer", callback_data=f"reveal|{word_id}")],
-        [InlineKeyboardButton("🏠 Menu", callback_data="menu|home")],
+        [InlineKeyboardButton("👀 Reveal answer", callback_data=f"reveal|{word_id}")],
+        [InlineKeyboardButton("🏠 Main menu", callback_data="menu|home")],
     ])
 
 
 def main_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🧠 Start review", callback_data="menu|review"),
-         InlineKeyboardButton("📚 Library", callback_data="menu|list")],
-        [InlineKeyboardButton("📊 Progress", callback_data="menu|stats"),
-         InlineKeyboardButton("➕ Import", callback_data="menu|add")],
-        [InlineKeyboardButton("🪲 Leeches", callback_data="menu|leeches")],
-        [InlineKeyboardButton("🎮 Word games", callback_data="menu|game")],
-        [InlineKeyboardButton("🧠 Memory & reminders", callback_data="memory|home")],
+        [InlineKeyboardButton("🧠 Review words", callback_data="menu|review"),
+         InlineKeyboardButton("📖 Review lessons", callback_data="memory|review")],
+        [InlineKeyboardButton("📥 Unknown words", callback_data="memory|word_list"),
+         InlineKeyboardButton("📝 Add lesson note", callback_data="memory|lessons")],
+        [InlineKeyboardButton("📊 My progress", callback_data="menu|stats"),
+         InlineKeyboardButton("⏰ Reminders", callback_data="memory|settings")],
+        [InlineKeyboardButton("✨ More options", callback_data="memory|home")],
     ])
 
 
 def dashboard_text():
     c = get_counts()
+    _, lesson_due = due_counts()
     return (
-        "🧠 <b>Word Box</b>\n"
-        "<i>English &amp; Russian vocabulary through Kazakh</i>\n\n"
-        f"🔥 Due now: <b>{c['due_now']}</b>\n"
-        f"🌱 New: <b>{c['new']}</b>\n"
-        f"🧩 Learning: <b>{c['learning']}</b>\n"
-        f"🌳 Mature: <b>{c['review']}</b>\n"
-        f"🪲 Suspended: <b>{c['suspended']}</b>\n\n"
-        "<i>Choose what you want to do.</i>"
+        "🧠 <b>WORD BOX</b>\n"
+        "<i>Your personal space for words and lessons</i>\n\n"
+        "🔥 <b>Ready to review</b>\n"
+        f"   • {c['due_now']} word cards\n"
+        f"   • {lesson_due} lesson cards\n\n"
+        f"📥 <b>Unknown words saved:</b> {inbox_count('word')}\n\n"
+        "✍️ <b>Quick add</b>\n"
+        "Send a word or a comma-separated list in this chat. I’ll save it for you.\n\n"
+        "<i>Choose an action below to make cards, review, or manage reminders.</i>"
     )
+
+
+def stats_text(counts, lesson_due=0):
+    return (
+        "📊 <b>YOUR PROGRESS</b>\n\n"
+        f"📚 <b>{counts['total']}</b> word cards in your library\n"
+        f"🔥 <b>{counts['due_now']}</b> words + <b>{lesson_due}</b> lessons ready now\n\n"
+        "<b>Word cards by stage</b>\n"
+        f"🌱 New  <b>{counts['new']}</b>\n"
+        f"🧩 Learning  <b>{counts['learning']}</b>\n"
+        f"🌳 Reviewing  <b>{counts['review']}</b>\n"
+        f"🪲 Paused after repeated misses  <b>{counts['suspended']}</b>\n\n"
+        "<i>Small, regular reviews add up.</i>"
+    )
+
+
+def library_text(rows):
+    if not rows:
+        return ("📚 <b>WORD LIBRARY</b>\n\n"
+                "No study cards yet. Save a word in chat, make a word prompt, and import the JSON.")
+    lines = [
+        f"{index}. <b>{esc_limit(row['word'], 100)}</b>{' 🔥' if row.get('priority') == 'high' else ''}"
+        f"  <i>· {esc(row['state'])}</i>"
+        for index, row in enumerate(rows[:30], 1)
+    ]
+    return "📚 <b>WORD LIBRARY</b>\n<i>First 30 cards by review date</i>\n\n" + "\n".join(lines)
+
+
+def leeches_text(rows):
+    if not rows:
+        return ("🪲 <b>DIFFICULT WORDS</b>\n\n"
+                "✨ No cards are paused after repeated misses.")
+    lines = [
+        f"• <b>{esc_limit(row['word'], 90)}</b> → {esc_limit(row['translation'], 100)}\n"
+        f"  <i>{row['lapses']} misses</i> · <code>{esc_limit(row['id'], 80)}</code>"
+        for row in rows[:10]
+    ]
+    return ("🪲 <b>DIFFICULT WORDS</b>\n<i>Showing up to 10 paused cards</i>\n"
+            "<i>These cards are paused so you can improve them first.</i>\n\n"
+            + "\n".join(lines)
+            + "\n\n💡 Add a memory hook with <code>/note WORD_ID text</code>, "
+              "then try <code>/reset WORD_ID</code>.")
+
+
+def import_help_text():
+    return ("📥 <b>IMPORT WORD CARDS</b>\n\n"
+            "Send a JSON array from your LLM, or attach a <code>.json</code> export from Word Studio.\n\n"
+            "📄 <b>File limit:</b> 2 MB · <b>Batch limit:</b> 500 cards\n"
+            "🔒 <i>Existing cards keep their review progress.</i>")
 
 
 def word_list_from_text(raw):
@@ -120,15 +199,16 @@ def answer_feedback(answer, w):
     typed = normalize_answer(answer)
     accepted = [normalize_answer(part) for part in re.split(r"[;,/]|\bor\b", expected, flags=re.IGNORECASE)]
     similarity = max((SequenceMatcher(None, typed, candidate).ratio() for candidate in accepted if candidate), default=0)
-    verdict = "✅ <b>Looks correct</b>" if similarity >= ANSWER_MATCH_THRESHOLD else "🔎 <b>Check your answer</b>"
+    verdict = "✅ <b>Looks right</b>" if similarity >= ANSWER_MATCH_THRESHOLD else "🔎 <b>Take another look</b>"
     direction_label = "foreign word" if w.get("direction") == "production" else "Kazakh meaning"
-    return (
+    feedback = (
         f"{verdict}\n\n"
-        f"✍️ <b>Your answer</b>\n{esc(answer)}\n\n"
-        f"✅ <b>Correct {direction_label}</b>\n{esc(expected)}\n\n"
-        f"<i>Grade your recall honestly, then continue.</i>\n\n"
-        f"{card_back_text(w)}"
-    )[:3900]
+        f"✍️ <b>Your answer</b>\n{esc(str(answer)[:300])}\n\n"
+        f"🎯 <b>Expected {direction_label}</b>\n{esc(expected)}\n\n"
+        f"<i>Choose how well you remembered it.</i>"
+    )
+    back = card_back_text(w)
+    return feedback + ("\n\n" + back if len(feedback) + len(back) + 2 <= 3900 else "")
 
 
 def game_round(cards, round_number):
@@ -140,15 +220,15 @@ def game_round(cards, round_number):
     if mode == "find":
         blank = re.sub(re.escape(target["word"]), "_____", target["context"], count=1, flags=re.IGNORECASE)
         prompt = (
-            "🔎 <b>Find the word</b>\n\n"
+            "🎮 <b>FIND THE WORD</b>\n\n"
             f"{esc(blank)}\n\n"
             f"🇰🇿 Hint: <b>{esc(target['translation'])}</b>\n\n"
-            "Which word completes the sentence?"
+            "<i>Which word completes the sentence?</i>"
         )
         label = lambda card: card["word"]
     else:
         prompt = (
-            "🧩 <b>Quick match</b>\n\n"
+            "🎮 <b>QUICK MATCH</b>\n\n"
             f"What is the Kazakh meaning of <b>{esc(target['word'])}</b>?"
         )
         label = lambda card: card["translation"]
@@ -176,4 +256,3 @@ def chatgpt_prompt(words):
         '"example":"...","synonyms":"...","priority":"high, normal, or low"}]\n\n'
         "Words:\n" + json.dumps(payload, ensure_ascii=False, indent=2)
     )
-

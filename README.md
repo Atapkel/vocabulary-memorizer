@@ -13,16 +13,21 @@ farther away. The learner never needs to choose or see an interval.
 
 ## Memory workflows
 
-The **Memory & reminders** menu has separate paths for unknown words and lesson
-material. The bot does not call an LLM or send your notes to one automatically.
+The main menu puts reviews, unknown words, lesson notes, progress, and reminders
+up front. **More options** contains prompts, imports, the library, and games.
+Telegram's `/` command menu lists the main commands. The bot does not call an
+LLM or send your notes to one automatically.
 
-1. Send `/unknown word1, word2` or tap **Unknown words** and send a list. The bot
-   keeps them in an inbox across restarts.
-2. Tap **Word prompt** or send `/unknownprompt`. Copy the prompt into an LLM.
+1. Send a word, phrase, or comma-separated list as an ordinary message. The bot
+   saves it to the unknown-word inbox automatically across restarts. `/unknown`
+   also works. Use **Saved unknown words** or `/unknowns` to see the newest
+   entries. Remove one with `/delete word` or its 🗑 button. Removing an inbox
+   entry does not delete an already imported study card.
+2. Open **More options → Word prompt** or send `/unknownprompt`. Copy the prompt into an LLM.
    Check its JSON response, then send `/add` followed by the JSON in your next
    message. Successfully imported words leave the inbox.
-3. For other material, send `/lesson your notes` or tap **Lessons** and send a
-   note. Use **Lesson prompt** or `/lessonprompt`, check the LLM's JSON, then
+3. For other material, send `/lesson your notes` or tap **Add lesson note** and
+   send a note. Use **More options → Lesson prompt** or `/lessonprompt`, check the LLM's JSON, then
    send `/lessonimport` followed by the JSON in your next message. Review the
    resulting question and answer cards with `/lessons`.
 
@@ -113,6 +118,7 @@ before normal and low-priority cards.
 - `/reset WORD_ID` — reset a suspended card to new after improving it
 - `/memory` — unknown words, lessons, and reminder menu
 - `/unknown` and `/unknownprompt` — collect words and generate an LLM prompt
+- `/unknowns` and `/delete word` — view and remove saved unknown words
 - `/lesson`, `/lessonprompt`, `/lessonimport`, `/lessons` — collect, create, and review lesson cards
 - `/settings`, `/timezone`, `/quiet`, `/reminders` — reminder controls
 

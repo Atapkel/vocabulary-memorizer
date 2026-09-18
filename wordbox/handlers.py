@@ -5,9 +5,9 @@ from telegram.ext import ContextTypes
 from .config import ALLOWED_USER_ID, MAX_IMPORT_BYTES, MAX_IMPORT_CARDS
 from .storage import (add_words, get_due_words, get_word_with_review, get_game_cards, save_review, get_counts, next_due_timestamp, list_words, list_leeches, set_note, reset_word)
 from .scheduling import rate
-from .views import (esc, card_front_text, card_back_text, rating_keyboard, reveal_answer_keyboard, main_keyboard, dashboard_text, word_list_from_text, answer_feedback, game_round, chatgpt_prompt)
-from .memory import remove_inbox
-from .memory_handlers import on_collecting
+from .views import (esc, card_front_text, card_back_text, rating_keyboard, reveal_answer_keyboard, main_keyboard, dashboard_text, stats_text, library_text, leeches_text, import_help_text, word_list_from_text, answer_feedback, game_round, chatgpt_prompt)
+from .memory import due_counts, remove_inbox
+from .memory_handlers import on_collecting, save_unknown
 
 async def send_next_card(message_edit_target):
     """message_edit_target: an Update's message or a CallbackQuery — must support edit/reply."""
@@ -15,9 +15,9 @@ async def send_next_card(message_edit_target):
     if not due:
         nxt = next_due_timestamp()
         if nxt:
-            text = "✅ <b>All caught up</b>\n\n<i>I’ll bring cards back automatically when reviewing them becomes useful.</i>"
+            text = "🎉 <b>ALL CAUGHT UP</b>\n\n✨ You’ve reviewed every word due right now. Come back when the next card is ready."
         else:
-            text = "No words yet — send me a .json file or use /add to import your list."
+            text = "🌱 <b>NO WORD CARDS YET</b>\n\nSend a word in chat, make an LLM prompt, then import the JSON to start reviewing."
         await message_edit_target(text, reply_markup=main_keyboard(), parse_mode=ParseMode.HTML)
         return
     w = due[0]
@@ -36,7 +36,7 @@ def authorized(update: Update) -> bool:
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not authorized(update):
-        await update.message.reply_text("This bot is private.")
+        await update.message.reply_text("🔒 <b>PRIVATE BOT</b>\n\nThis account does not have access.", parse_mode=ParseMode.HTML)
         return
     await update.message.reply_text(dashboard_text(), reply_markup=main_keyboard(), parse_mode=ParseMode.HTML)
 
@@ -49,70 +49,40 @@ async def cmd_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     words = word_list_from_text(raw)
     if not words:
         await update.message.reply_text(
-            "📝 <b>Make an import prompt</b>\n\n"
+            "📝 <b>MAKE WORD CARDS</b>\n\n"
             "Send words after the command, separated by commas.\n\n"
             "<code>/prompt yes, no, although, прийти к выводу</code>\n\n"
-            "I will return text to paste into ChatGPT. It will ask for Kazakh meanings and priority.",
+            "💡 <i>I’ll give you a prompt to paste into an LLM.</i>",
             parse_mode=ParseMode.HTML,
         )
         return
     prompt = chatgpt_prompt(words)
     await update.message.reply_text(
-        f"📝 <b>ChatGPT prompt for {len(words)} words</b>\n"
-        "<i>Copy the text below, send it to ChatGPT, then import ChatGPT’s JSON reply with /add.</i>\n\n"
-        f"<pre>{esc(prompt)}</pre>",
+        f"📝 <b>WORD CARD PROMPT</b>\n<i>{len(words)} words</i>\n\n"
+        "📋 Copy the next message into an LLM. Check its JSON reply, then import it with <code>/add</code>.\n\n"
+        "<i>The prompt is plain text for easy copying.</i>",
         parse_mode=ParseMode.HTML,
     )
+    await update.message.reply_text(prompt)
 
 
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not authorized(update):
         return
-    c = get_counts()
-    await update.message.reply_text(
-        "📊 <b>Your progress</b>\n\n"
-        f"📚 Total cards: <b>{c['total']}</b>\n"
-        f"🔥 Due now: <b>{c['due_now']}</b>\n"
-        f"🌱 New: <b>{c['new']}</b>\n"
-        f"🧩 Learning: <b>{c['learning']}</b>\n"
-        f"🌳 Mature: <b>{c['review']}</b>",
-        reply_markup=main_keyboard(), parse_mode=ParseMode.HTML,
-    )
+    _, lesson_due = due_counts()
+    await update.message.reply_text(stats_text(get_counts(), lesson_due), reply_markup=main_keyboard(), parse_mode=ParseMode.HTML)
 
 
 async def cmd_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not authorized(update):
         return
-    words = list_words()
-    if not words:
-        await update.message.reply_text("No words yet. Use /add to import your list.")
-        return
-    lines = []
-    for w in words:
-        badge = " 🔥" if w.get("priority") == "high" else ""
-        lines.append(f"• <b>{esc(w['word'])}</b>{badge} · <i>{esc(w['state'])}</i>")
-    await update.message.reply_text(
-        "📚 <b>Library</b> <i>(first 30)</i>\n\n" + "\n".join(lines),
-        reply_markup=main_keyboard(), parse_mode=ParseMode.HTML,
-    )
+    await update.message.reply_text(library_text(list_words()), reply_markup=main_keyboard(), parse_mode=ParseMode.HTML)
 
 
 async def cmd_leeches(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not authorized(update):
         return
-    leeches = list_leeches()
-    if not leeches:
-        await update.message.reply_text("✅ No suspended cards. Keep it up!", reply_markup=main_keyboard())
-        return
-    lines = [
-        f"• <code>{esc(w['id'])}</code> — <b>{esc(w['word'])}</b> → {esc(w['translation'])} "
-        f"(<i>{w['lapses']} lapses</i>)" for w in leeches
-    ]
-    await update.message.reply_text(
-        "🪲 <b>Leeches</b> <i>(suspended after repeated misses)</i>\n\n" + "\n".join(lines) +
-        "\n\nAdd a clearer note or mnemonic, then use <code>/reset WORD_ID</code> to study one again.",
-        reply_markup=main_keyboard(), parse_mode=ParseMode.HTML,
-    )
+    await update.message.reply_text(leeches_text(list_leeches()), reply_markup=main_keyboard(), parse_mode=ParseMode.HTML)
 
 
 async def cmd_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -120,12 +90,12 @@ async def cmd_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     parts = update.message.text.split(maxsplit=2)
     if len(parts) < 3:
-        await update.message.reply_text("Usage: <code>/note WORD_ID your memory hook</code>", parse_mode=ParseMode.HTML)
+        await update.message.reply_text("📝 <b>ADD A MEMORY HOOK</b>\n\nUse <code>/note WORD_ID your memory hook</code>.", parse_mode=ParseMode.HTML)
         return
     if set_note(parts[1], parts[2].strip()):
-        await update.message.reply_text("📝 Note saved.", reply_markup=main_keyboard())
+        await update.message.reply_text("✅ <b>Memory hook saved</b>\n\nYou’ll see it when reviewing this word.", reply_markup=main_keyboard(), parse_mode=ParseMode.HTML)
     else:
-        await update.message.reply_text("No card found with that ID.")
+        await update.message.reply_text("🔎 <b>Card not found</b>\n\nCheck the ID under Difficult words.", parse_mode=ParseMode.HTML)
 
 
 async def cmd_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -133,11 +103,11 @@ async def cmd_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     word_id = update.message.text.partition(" ")[2].strip()
     if not word_id:
-        await update.message.reply_text("Usage: <code>/reset WORD_ID</code>", parse_mode=ParseMode.HTML)
+        await update.message.reply_text("🌱 <b>RESTART A CARD</b>\n\nUse <code>/reset WORD_ID</code>.", parse_mode=ParseMode.HTML)
     elif reset_word(word_id):
-        await update.message.reply_text("🌱 Card reset to new and ready to review.", reply_markup=main_keyboard())
+        await update.message.reply_text("✅ <b>Card restarted</b>\n\nIt’s ready for review again.", reply_markup=main_keyboard(), parse_mode=ParseMode.HTML)
     else:
-        await update.message.reply_text("No card found with that ID.")
+        await update.message.reply_text("🔎 <b>Card not found</b>\n\nCheck the ID under Difficult words.", parse_mode=ParseMode.HTML)
 
 
 async def cmd_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -149,14 +119,14 @@ async def cmd_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def start_game(context: ContextTypes.DEFAULT_TYPE, reply_fn):
     cards = get_game_cards()
     if len(cards) < 2:
-        await reply_fn("Add at least two active cards before playing a game.", reply_markup=main_keyboard())
+        await reply_fn("🎮 <b>GAME LOCKED</b>\n\nAdd at least two study cards to play.", reply_markup=main_keyboard(), parse_mode=ParseMode.HTML)
         return
     context.user_data["game"] = {"score": 0, "round": 0}
     target, prompt, keyboard = game_round(cards, 0)
     context.user_data["game"]["target_id"] = target["id"]
     await reply_fn(
-        "🎮 <b>Word sprint</b> · Score: <b>0</b>\n"
-        "<i>Match meanings and complete contexts. Game scores never change your review schedule.</i>\n\n" + prompt,
+        "🎮 <b>WORD SPRINT</b>\n"
+        "🏅 Score <b>0</b> · <i>Games don’t change review dates.</i>\n\n" + prompt,
         reply_markup=keyboard, parse_mode=ParseMode.HTML,
     )
 
@@ -175,12 +145,7 @@ async def cmd_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await do_import(update.message.reply_text, text_after)
     else:
         context.user_data["awaiting_import"] = True
-        await update.message.reply_text(
-            "➕ <b>Import cards</b>\n\nSend the JSON exported by local Word Studio. "
-            "You can paste an array or attach a <code>.json</code> file up to 2 MB.\n\n"
-            "<i>Duplicates are skipped and existing review progress is preserved.</i>",
-            parse_mode=ParseMode.HTML,
-        )
+        await update.message.reply_text(import_help_text(), reply_markup=main_keyboard(), parse_mode=ParseMode.HTML)
 
 
 async def do_import(reply_fn, text):
@@ -191,14 +156,14 @@ async def do_import(reply_fn, text):
         if len(parsed) > MAX_IMPORT_CARDS:
             raise ValueError("Import at most 500 cards at a time")
     except Exception as e:
-        await reply_fn(f"Could not parse JSON: {e}")
+        await reply_fn(f"⚠️ <b>IMPORT FAILED</b>\n\n{esc(e)}\n\n<i>Check the JSON and try again with /add.</i>", parse_mode=ParseMode.HTML)
         return
     added, skipped, errors = add_words(parsed)
     if added:
         remove_inbox("word", [w["word"].strip() for w in parsed if isinstance(w, dict) and isinstance(w.get("word"), str)])
-    result = f"✅ <b>Import complete</b>\n\nAdded: <b>{added}</b>\nSkipped: <b>{skipped}</b>"
+    result = f"✅ <b>WORD CARDS IMPORTED</b>\n\n🌱 Added  <b>{added}</b>\n↪️ Skipped  <b>{skipped}</b>"
     if errors:
-        result += "\n\n⚠️ <b>First issues</b>\n" + "\n".join(esc(e) for e in errors)
+        result += "\n\n⚠️ <b>Things to check</b>\n" + "\n".join(esc(e) for e in errors)
     await reply_fn(result, reply_markup=main_keyboard(), parse_mode=ParseMode.HTML)
 
 
@@ -207,17 +172,17 @@ async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     doc = update.message.document
     if not (doc.file_name or "").lower().endswith(".json"):
-        await update.message.reply_text("Please send a .json file.")
+        await update.message.reply_text("📄 <b>JSON FILE NEEDED</b>\n\nPlease attach a <code>.json</code> file.", parse_mode=ParseMode.HTML)
         return
     if doc.file_size and doc.file_size > MAX_IMPORT_BYTES:
-        await update.message.reply_text("That file is larger than 2 MB. Split it into smaller imports.")
+        await update.message.reply_text("📦 <b>FILE TOO LARGE</b>\n\nSplit the export into files under 2 MB.", parse_mode=ParseMode.HTML)
         return
     file = await doc.get_file()
     data = await file.download_as_bytearray()
     try:
         decoded = data.decode("utf-8")
     except UnicodeDecodeError:
-        await update.message.reply_text("That file is not valid UTF-8 JSON.")
+        await update.message.reply_text("⚠️ <b>INVALID FILE</b>\n\nSave it as UTF-8 JSON and try again.", parse_mode=ParseMode.HTML)
         return
     await do_import(update.message.reply_text, decoded)
     context.user_data["awaiting_import"] = False
@@ -226,13 +191,11 @@ async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not authorized(update):
         return
-    if await on_collecting(update, context):
-        return
     pending = context.user_data.pop("awaiting_answer", None)
     if pending:
         w = get_word_with_review(pending["word_id"])
         if not w or w["state"] == "suspended":
-            await update.message.reply_text("That card is no longer available. Start another review.", reply_markup=main_keyboard())
+            await update.message.reply_text("🔄 <b>CARD UNAVAILABLE</b>\n\nStart another review from the menu.", reply_markup=main_keyboard(), parse_mode=ParseMode.HTML)
             return
         await update.message.reply_text(
             answer_feedback(update.message.text, w), reply_markup=rating_keyboard(w["id"], w), parse_mode=ParseMode.HTML,
@@ -240,8 +203,12 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif context.user_data.get("awaiting_import"):
         context.user_data["awaiting_import"] = False
         await do_import(update.message.reply_text, update.message.text)
+    elif await on_collecting(update, context):
+        return
+    elif update.message.text.lstrip().startswith(("[", "{")):
+        await update.message.reply_text("📥 <b>READY TO IMPORT?</b>\n\nUse <code>/add</code> for word cards or <code>/lessonimport</code> for lesson cards, then paste the JSON.", parse_mode=ParseMode.HTML)
     else:
-        await update.message.reply_text("Choose an action below.", reply_markup=main_keyboard())
+        await save_unknown(update.message.reply_text, update.message.text)
 
 
 async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -263,64 +230,51 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif destination == "review":
             await send_next_card(edit)
         elif destination == "stats":
-            c = get_counts()
-            await edit(
-                "📊 <b>Your progress</b>\n\n"
-                f"📚 Total: <b>{c['total']}</b>\n🔥 Due now: <b>{c['due_now']}</b>\n"
-                f"🌱 New: <b>{c['new']}</b>\n🧩 Learning: <b>{c['learning']}</b>\n🌳 Mature: <b>{c['review']}</b>\n🪲 Suspended: <b>{c['suspended']}</b>",
-                main_keyboard(), ParseMode.HTML,
-            )
+            _, lesson_due = due_counts()
+            await edit(stats_text(get_counts(), lesson_due), main_keyboard(), ParseMode.HTML)
         elif destination == "list":
-            rows = list_words()
-            lines = [f"• <b>{esc(w['word'])}</b>{' 🔥' if w.get('priority') == 'high' else ''} · <i>{esc(w['state'])}</i>" for w in rows]
-            await edit("📚 <b>Library</b> <i>(first 30)</i>\n\n" + ("\n".join(lines) if lines else "No cards yet."), main_keyboard(), ParseMode.HTML)
+            await edit(library_text(list_words()), main_keyboard(), ParseMode.HTML)
         elif destination == "leeches":
-            rows = list_leeches()
-            lines = [f"• <code>{esc(w['id'])}</code> — <b>{esc(w['word'])}</b> (<i>{w['lapses']} lapses</i>)" for w in rows]
-            await edit(
-                "🪲 <b>Leeches</b>\n\n" + ("\n".join(lines) if lines else "No suspended cards.") +
-                "\n\nUse <code>/note WORD_ID text</code>, then <code>/reset WORD_ID</code> when ready.",
-                main_keyboard(), ParseMode.HTML,
-            )
+            await edit(leeches_text(list_leeches()), main_keyboard(), ParseMode.HTML)
         elif destination == "game":
             await start_game(context, edit)
         else:
             context.user_data["awaiting_import"] = True
-            await edit("➕ <b>Import cards</b>\n\nSend a Word Studio JSON file (maximum 2 MB).", main_keyboard(), ParseMode.HTML)
+            await edit(import_help_text(), main_keyboard(), ParseMode.HTML)
         return
 
     if action == "game":
         game = context.user_data.get("game")
         if not game:
-            await edit("That game has finished. Start a new one with /game.", main_keyboard(), ParseMode.HTML)
+            await edit("🎮 <b>GAME OVER</b>\n\nStart a new round with <code>/game</code>.", main_keyboard(), ParseMode.HTML)
             return
         if len(data) == 2 and data[1] == "next":
             cards = get_game_cards()
             if len(cards) < 2:
-                await edit("Not enough active cards to continue.", main_keyboard())
+                await edit("🎮 <b>MORE CARDS NEEDED</b>\n\nAdd at least two active cards to keep playing.", main_keyboard(), ParseMode.HTML)
                 return
             target, prompt, keyboard = game_round(cards, game["round"])
             game["target_id"] = target["id"]
             await edit(
-                f"🎮 <b>Word sprint</b> · Score: <b>{game['score']}</b>\n\n{prompt}",
+                f"🎮 <b>WORD SPRINT</b>\n🏅 Score <b>{game['score']}</b>\n\n{prompt}",
                 keyboard, ParseMode.HTML,
             )
             return
         if len(data) != 3 or data[1] != game.get("target_id"):
-            await edit("That round expired. Start a new game with /game.", main_keyboard(), ParseMode.HTML)
+            await edit("⌛ <b>ROUND EXPIRED</b>\n\nStart a new game with <code>/game</code>.", main_keyboard(), ParseMode.HTML)
             return
         target = get_word_with_review(data[1])
         if not target:
-            await edit("That card no longer exists.", main_keyboard())
+            await edit("🔎 <b>CARD NOT FOUND</b>\n\nChoose another game.", main_keyboard(), ParseMode.HTML)
             return
         correct = data[2] == data[1]
         if correct:
             game["score"] += 1
         game["round"] += 1
-        verdict = "🎉 <b>Correct!</b>" if correct else "💡 <b>Almost — here is the match.</b>"
+        verdict = "🎉 <b>GREAT MATCH!</b>" if correct else "💡 <b>HERE’S THE MATCH</b>"
         await edit(
-            f"{verdict}\n\n<b>{esc(target['word'])}</b> → 🇰🇿 <b>{esc(target['translation'])}</b>\n\n"
-            f"Score: <b>{game['score']}</b> · Round: <b>{game['round']}</b>",
+            f"{verdict}\n\n🔤 <b>{esc(target['word'])}</b>\n🇰🇿 {esc(target['translation'])}\n\n"
+            f"🏅 Score <b>{game['score']}</b>  ·  Round <b>{game['round']}</b>",
             InlineKeyboardMarkup([
                 [InlineKeyboardButton("▶️ Next round", callback_data="game|next")],
                 [InlineKeyboardButton("🏠 Finish game", callback_data="menu|home")],
@@ -333,7 +287,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if action == "reveal":
         w = get_word_with_review(word_id)
         if not w:
-            await edit("That word no longer exists.")
+            await edit("🔎 <b>WORD NOT FOUND</b>\n\nReturn to the menu and choose another card.", main_keyboard(), ParseMode.HTML)
             return
         await edit(
             card_back_text(w),
@@ -344,10 +298,9 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         rating = data[2]
         w = get_word_with_review(word_id)
         if not w:
-            await edit("That word no longer exists.")
+            await edit("🔎 <b>WORD NOT FOUND</b>\n\nReturn to the menu and choose another card.", main_keyboard(), ParseMode.HTML)
             return
         updated = rate(w, rating)
         save_review(word_id, updated)
         context.user_data.pop("awaiting_answer", None)
         await send_next_card(edit)
-
