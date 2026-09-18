@@ -5,9 +5,12 @@ from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
-from wordbox import handlers, memory, memory_handlers, storage, views
+from telegram.error import BadRequest
+
+from wordbox import handlers, memory, memory_handlers, scheduling, storage, views
+from wordbox.telegram_ui import edit_text
 
 
 class TelegramHtmlParser(HTMLParser):
@@ -63,6 +66,26 @@ class MemoryFlowTests(unittest.TestCase):
         prefs["last_reminder_slot"] = slot
         self.assertIsNone(memory.reminder_slot(datetime(2026, 9, 18, 4, 30, tzinfo=timezone.utc), prefs))
         self.assertIsNone(memory.reminder_slot(datetime(2026, 9, 18, 18, 0, tzinfo=timezone.utc), prefs))
+
+    def test_legacy_priority_is_ignored_and_due_time_decides_order(self):
+        with storage.get_conn() as conn:
+            conn.execute("ALTER TABLE words ADD COLUMN priority TEXT DEFAULT 'normal'")
+        added, skipped, _ = storage.add_words([
+            {"id": "later", "word": "later", "translation": "кейін", "priority": "high"},
+            {"id": "sooner", "word": "sooner", "translation": "ертерек", "priority": "low"},
+        ])
+        self.assertEqual((added, skipped), (2, 0))
+        with storage.get_conn() as conn:
+            conn.execute("UPDATE reviews SET due=100 WHERE word_id='later'")
+            conn.execute("UPDATE reviews SET due=50 WHERE word_id='sooner'")
+        self.assertEqual([row["id"] for row in storage.get_due_words(2)], ["sooner", "later"])
+
+        review = {"state": "review", "step": 0, "interval": 6, "ef": 2.5,
+                  "due": 0, "reps": 2, "lapses": 0, "direction": "recognition"}
+        with patch.object(scheduling.time, "time", return_value=1000):
+            high = scheduling.rate({**review, "priority": "high"}, "good")
+            low = scheduling.rate({**review, "priority": "low"}, "good")
+        self.assertEqual(high["due"], low["due"])
 
     def test_delete_unknown_word_does_not_delete_imported_card(self):
         memory.collect("word", ["Take off", "TAKE OFF", "another"])
@@ -123,6 +146,17 @@ class MemoryFlowTests(unittest.TestCase):
         long_inbox = memory_handlers.unknown_list_view()[0]
         self.assertLessEqual(len(long_library), 4096)
         self.assertLessEqual(len(long_inbox), 4096)
+
+
+class TelegramEditTests(unittest.IsolatedAsyncioTestCase):
+    async def test_unchanged_edit_is_harmless(self):
+        query = SimpleNamespace(edit_message_text=AsyncMock(side_effect=BadRequest("Message is not modified")))
+        self.assertIsNone(await edit_text(query, "Same text"))
+
+    async def test_other_bad_request_is_reported(self):
+        query = SimpleNamespace(edit_message_text=AsyncMock(side_effect=BadRequest("Button_data_invalid")))
+        with self.assertRaises(BadRequest):
+            await edit_text(query, "New text")
 
 
 if __name__ == "__main__":

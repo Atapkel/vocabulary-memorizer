@@ -92,6 +92,23 @@ docker compose down
 Do not run `docker compose down -v` unless you deliberately want to erase all
 vocabulary and review history. Keep `.env` private; it is excluded from Git.
 
+### Updating an existing deployment
+
+Keep the database. The bot creates missing tables and columns at startup and
+continues using existing cards and review history. Before rebuilding, make a
+backup from the project directory on the server:
+
+```bash
+docker compose stop word-box
+docker compose cp word-box:/data/vocab.db ./vocab-backup.db
+docker compose up -d --build
+docker compose logs -f word-box
+```
+
+The old `priority` column can remain in an existing database. Current code
+ignores it; new databases do not create it. `docker compose down -v` removes the
+named data volume and permanently erases review history.
+
 ## Import
 
 In local Word Studio, choose **Library → Export for Telegram**. In Telegram,
@@ -101,8 +118,8 @@ resetting their existing review progress.
 
 For words without context, use `/prompt yes, no, although`. The bot returns a
 ready-to-paste ChatGPT prompt; paste the resulting JSON reply back through
-`/add`. It includes a `priority` field, and due high-priority cards are reviewed
-before normal and low-priority cards.
+`/add`. Older exports that contain a `priority` field still import; the bot
+ignores that field and reviews cards by due time.
 
 ## Commands
 

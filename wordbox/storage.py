@@ -1,7 +1,7 @@
 import sqlite3
 import time
 import uuid
-from .config import DB_PATH, MAX_WORD, MAX_CONTEXT, PRIORITIES
+from .config import DB_PATH, MAX_WORD, MAX_CONTEXT
 
 def get_conn():
     conn = sqlite3.connect(DB_PATH)
@@ -22,8 +22,7 @@ def init_db():
             pos TEXT,
             synonyms TEXT,
             example TEXT,
-            created_at INTEGER,
-            priority TEXT DEFAULT 'normal'
+            created_at INTEGER
         )
     """)
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(words)")}
@@ -31,8 +30,6 @@ def init_db():
         conn.execute("ALTER TABLE words ADD COLUMN target_language TEXT DEFAULT 'english'")
     if "pronunciation" not in columns:
         conn.execute("ALTER TABLE words ADD COLUMN pronunciation TEXT")
-    if "priority" not in columns:
-        conn.execute("ALTER TABLE words ADD COLUMN priority TEXT DEFAULT 'normal'")
     if "note" not in columns:
         conn.execute("ALTER TABLE words ADD COLUMN note TEXT")
     conn.execute("""
@@ -99,9 +96,6 @@ def add_words(word_list):
         if lang not in ("english", "russian"):
             lang = "russian" if any(("а" <= c.lower() <= "я") or c.lower() == "ё" for c in word) else "english"
         context_text = " ".join(str(w.get("context") or "").split())[:MAX_CONTEXT]
-        priority = str(w.get("priority") or "normal").lower().strip()
-        if priority not in PRIORITIES:
-            priority = "normal"
         exists = conn.execute(
             """SELECT 1 FROM words WHERE id=? OR
                (lower(trim(word))=lower(trim(?)) AND target_language=? AND context=?)""",
@@ -112,12 +106,12 @@ def add_words(word_list):
             continue
         conn.execute(
             """INSERT INTO words (id, word, context, translation, explanation, pos, synonyms, example,
-               created_at, target_language, pronunciation, priority, note) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               created_at, target_language, pronunciation, note) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
             (wid, word, context_text, str(w.get("translation") or "")[:300],
              str(w.get("explanation") or "")[:800], "",
              str(w.get("synonyms") or "")[:300], str(w.get("example") or "")[:300],
              w.get("created_at") if isinstance(w.get("created_at"), (int, float)) else now,
-             lang, "", priority, str(w.get("note") or "")[:1000]),
+             lang, "", str(w.get("note") or "")[:1000]),
         )
         conn.execute(
             """INSERT INTO reviews (word_id, state, step, interval, ef, due, reps, lapses)
@@ -137,7 +131,7 @@ def get_due_words(limit=1):
         """SELECT w.*, r.state, r.step, r.interval, r.ef, r.due, r.reps, r.lapses, r.direction
            FROM words w JOIN reviews r ON w.id = r.word_id
            WHERE r.state != 'suspended' AND r.due <= ?
-           ORDER BY CASE w.priority WHEN 'high' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END, r.due ASC LIMIT ?""",
+           ORDER BY r.due ASC, w.id ASC LIMIT ?""",
         (now, limit),
     ).fetchall()
     conn.close()
@@ -202,7 +196,7 @@ def next_due_timestamp():
 def list_words(limit=30):
     conn = get_conn()
     rows = conn.execute(
-        """SELECT w.word, w.priority, r.state, r.due FROM words w JOIN reviews r ON w.id=r.word_id
+        """SELECT w.word, r.state, r.due FROM words w JOIN reviews r ON w.id=r.word_id
            ORDER BY r.due ASC LIMIT ?""",
         (limit,),
     ).fetchall()
@@ -238,4 +232,3 @@ def reset_word(word_id):
     conn.commit()
     conn.close()
     return bool(changed)
-

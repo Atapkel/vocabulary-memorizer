@@ -51,7 +51,6 @@ def highlight_context(context, word):
 
 def card_front_text(w):
     flag = "🇷🇺" if w.get("target_language") == "russian" else "🇬🇧"
-    priority = "🔥 <b>High priority</b>\n" if w.get("priority") == "high" else ""
     production = w.get("direction") == "production"
     prompt = w.get("translation") if production else w.get("word")
     prompt_label = "Kazakh meaning" if production else "Word"
@@ -63,7 +62,7 @@ def card_front_text(w):
     return (
         f"🧠 <b>WORD REVIEW</b>  {flag}\n"
         f"<i>{esc(w['state']).capitalize()} card</i>\n\n"
-        f"{priority}❓ <b>{esc(prompt)}</b>\n"
+        f"❓ <b>{esc(prompt)}</b>\n"
         f"<i>{prompt_label}</i>\n\n"
         f"{context}💭 <i>Recall {expected} before revealing the answer.</i>"
     )
@@ -149,7 +148,7 @@ def library_text(rows):
         return ("📚 <b>WORD LIBRARY</b>\n\n"
                 "No study cards yet. Save a word in chat, make a word prompt, and import the JSON.")
     lines = [
-        f"{index}. <b>{esc_limit(row['word'], 100)}</b>{' 🔥' if row.get('priority') == 'high' else ''}"
+        f"{index}. <b>{esc_limit(row['word'], 100)}</b>"
         f"  <i>· {esc(row['state'])}</i>"
         for index, row in enumerate(rows[:30], 1)
     ]
@@ -248,11 +247,9 @@ def chatgpt_prompt(words):
         "Create vocabulary cards for a native Kazakh speaker intensively learning English and Russian.\n\n"
         "For every word or phrase: translate its most useful meaning into natural Kazakh; write a simple "
         "one-sentence definition in the target language, one short natural example, and up to two useful synonyms.\n\n"
-        "Set priority to high for core, very frequent, or especially practical words; normal for useful everyday "
-        "words; low only for rare or narrowly specialised words. Use frequency and usefulness, not word length.\n\n"
         "Reply with ONLY a valid JSON array using exactly these fields:\n"
         '[{"word":"...","target_language":"english or russian","context":"","translation":"Kazakh meaning",'
         '"explanation":"simple target-language definition",'
-        '"example":"...","synonyms":"...","priority":"high, normal, or low"}]\n\n'
+        '"example":"...","synonyms":"..."}]\n\n'
         "Words:\n" + json.dumps(payload, ensure_ascii=False, indent=2)
     )

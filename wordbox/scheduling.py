@@ -35,10 +35,6 @@ def rate(review, rating):
                 r["interval"] = 6
             else:
                 r["interval"] = round(r["interval"] * r["ef"])
-            if r.get("priority") == "high":
-                r["interval"] = max(1, round(r["interval"] * 0.7))
-            elif r.get("priority") == "low":
-                r["interval"] = max(1, round(r["interval"] * 1.25))
             r["ef"] = max(1.3, r["ef"] + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02)))
             r["due"] = now + r["interval"] * 86400
             # Once recognition is established, alternate recall directions.
@@ -48,5 +44,4 @@ def rate(review, rating):
         r["state"] = "suspended"
         r["due"] = None
     return r
-
 

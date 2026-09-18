@@ -19,6 +19,7 @@ from .memory import (
     set_setting, settings, valid_time, word_prompt,
 )
 from .views import esc, esc_limit
+from .telegram_ui import edit_text
 
 log = logging.getLogger(__name__)
 
@@ -318,13 +319,16 @@ async def on_memory_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.answer()
         return
     await query.answer()
+    async def edit(text, reply_markup=None, parse_mode=None):
+        return await edit_text(query, text, reply_markup=reply_markup, parse_mode=parse_mode)
+
     parts = query.data.split("|")
     action = parts[1]
     if action == "home":
-        await query.edit_message_text(section_text(), reply_markup=memory_keyboard(), parse_mode=ParseMode.HTML)
+        await edit(section_text(), reply_markup=memory_keyboard(), parse_mode=ParseMode.HTML)
     elif action == "word_list":
         text, keyboard = unknown_list_view()
-        await query.edit_message_text(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
+        await edit(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
     elif action == "delete" and len(parts) == 3:
         try:
             item_id = int(parts[2])
@@ -333,24 +337,24 @@ async def on_memory_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if not delete_unknown_by_id(item_id):
             return
         text, keyboard = unknown_list_view()
-        await query.edit_message_text(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
+        await edit(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
     elif action == "unknown":
         context.user_data["collecting"] = "word"
-        await query.edit_message_text("📥 <b>SAVE UNKNOWN WORDS</b>\n\nSend a word, phrase, or comma-separated list in your next message.\n\n<i>Example: curious, take off, удивление</i>", reply_markup=memory_keyboard(), parse_mode=ParseMode.HTML)
+        await edit("📥 <b>SAVE UNKNOWN WORDS</b>\n\nSend a word, phrase, or comma-separated list in your next message.\n\n<i>Example: curious, take off, удивление</i>", reply_markup=memory_keyboard(), parse_mode=ParseMode.HTML)
     elif action == "lessons":
         context.user_data["collecting"] = "lesson"
-        await query.edit_message_text("📖 <b>ADD A LESSON NOTE</b>\n\nSend a fact, explanation, or passage in your next message.\n\n<i>Up to 1,500 characters.</i>", reply_markup=memory_keyboard(), parse_mode=ParseMode.HTML)
+        await edit("📖 <b>ADD A LESSON NOTE</b>\n\nSend a fact, explanation, or passage in your next message.\n\n<i>Up to 1,500 characters.</i>", reply_markup=memory_keyboard(), parse_mode=ParseMode.HTML)
     elif action == "settings":
-        await query.edit_message_text(settings_text(), reply_markup=memory_keyboard(), parse_mode=ParseMode.HTML)
+        await edit(settings_text(), reply_markup=memory_keyboard(), parse_mode=ParseMode.HTML)
     elif action == "word_prompt":
         await send_prompt(query.message.reply_text, "word", context)
     elif action == "lesson_prompt":
         await send_prompt(query.message.reply_text, "lesson", context)
     elif action == "lesson_import":
         context.user_data["collecting"] = "lesson_import"
-        await query.edit_message_text("📥 <b>IMPORT LESSON CARDS</b>\n\nPaste the lesson JSON array in your next message. I’ll check it before saving the cards.", reply_markup=memory_keyboard(), parse_mode=ParseMode.HTML)
+        await edit("📥 <b>IMPORT LESSON CARDS</b>\n\nPaste the lesson JSON array in your next message. I’ll check it before saving the cards.", reply_markup=memory_keyboard(), parse_mode=ParseMode.HTML)
     elif action == "review":
-        await send_lesson_card(query.edit_message_text)
+        await send_lesson_card(edit)
     elif action in {"reveal", "rate"} and len(parts) >= 3:
         try:
             card_id = int(parts[2])
@@ -358,19 +362,19 @@ async def on_memory_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
         card = lesson_by_id(card_id)
         if not card:
-            await query.edit_message_text("🔎 <b>CARD NOT FOUND</b>\n\nChoose another lesson card.", reply_markup=memory_keyboard(), parse_mode=ParseMode.HTML)
+            await edit("🔎 <b>CARD NOT FOUND</b>\n\nChoose another lesson card.", reply_markup=memory_keyboard(), parse_mode=ParseMode.HTML)
             return
         if action == "reveal":
-            await query.edit_message_text(
+            await edit(
                 lesson_back_text(card),
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔁 Study again", callback_data=f"memory|rate|{card_id}|again"), InlineKeyboardButton("✅ Remembered", callback_data=f"memory|rate|{card_id}|good")]]),
                 parse_mode=ParseMode.HTML,
             )
         elif len(parts) == 4 and parts[3] in {"again", "good"}:
             if rate_lesson(card_id, parts[3]):
-                await send_lesson_card(query.edit_message_text)
+                await send_lesson_card(edit)
             else:
-                await query.edit_message_text("🔄 <b>ALREADY REVIEWED</b>\n\nChoose another card when it’s due.", reply_markup=memory_keyboard(), parse_mode=ParseMode.HTML)
+                await edit("🔄 <b>ALREADY REVIEWED</b>\n\nChoose another card when it’s due.", reply_markup=memory_keyboard(), parse_mode=ParseMode.HTML)
 
 
 async def reminder_loop(app):

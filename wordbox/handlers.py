@@ -2,6 +2,7 @@ import json
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
+from .telegram_ui import edit_text
 from .config import ALLOWED_USER_ID, MAX_IMPORT_BYTES, MAX_IMPORT_CARDS
 from .storage import (add_words, get_due_words, get_word_with_review, get_game_cards, save_review, get_counts, next_due_timestamp, list_words, list_leeches, set_note, reset_word)
 from .scheduling import rate
@@ -221,7 +222,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     action = data[0]
 
     async def edit(text, reply_markup=None, parse_mode=None):
-        await query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+        await edit_text(query, text, reply_markup=reply_markup, parse_mode=parse_mode)
 
     if action == "menu":
         destination = data[1]
