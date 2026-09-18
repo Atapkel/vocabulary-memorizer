@@ -16,6 +16,7 @@ RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir "python-dotenv==1.2.3" "python-telegram-bot==22.8"
 
 COPY bot.py ./
+COPY wordbox ./wordbox
 
 USER wordbox
 

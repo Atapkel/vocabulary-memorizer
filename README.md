@@ -2,13 +2,52 @@
 
 Private Telegram vocabulary review for English and Russian cards whose default
 meaning language is Kazakh. The bot stores its primary spaced-repetition history
-in SQLite and accepts manual exports from local Word Studio.
+in SQLite and accepts manual exports from local Word Studio. It also collects
+unknown words and lesson notes for LLM-assisted card creation.
 
 Every review lets you reveal the correct answer and then grade your recall. After
 early recognition practice, cards alternate between recalling the
 Kazakh meaning and producing the English/Russian word. Scheduling remains
 automatic: forgotten cards return sooner and remembered cards gradually move
 farther away. The learner never needs to choose or see an interval.
+
+## Memory workflows
+
+The **Memory & reminders** menu has separate paths for unknown words and lesson
+material. The bot does not call an LLM or send your notes to one automatically.
+
+1. Send `/unknown word1, word2` or tap **Unknown words** and send a list. The bot
+   keeps them in an inbox across restarts.
+2. Tap **Word prompt** or send `/unknownprompt`. Copy the prompt into an LLM.
+   Check its JSON response, then send `/add` followed by the JSON in your next
+   message. Successfully imported words leave the inbox.
+3. For other material, send `/lesson your notes` or tap **Lessons** and send a
+   note. Use **Lesson prompt** or `/lessonprompt`, check the LLM's JSON, then
+   send `/lessonimport` followed by the JSON in your next message. Review the
+   resulting question and answer cards with `/lessons`.
+
+Prompts use the first 15 unknown words or 10 lesson notes in the inbox. Repeat
+the prompt and import process to work through a larger inbox. Lesson imports
+accept at most 100 cards and keep duplicates from resetting review history.
+The lesson JSON format is:
+
+```json
+[{"topic":"Biology","question":"What does DNA store?","answer":"Genetic information.","hint":""}]
+```
+
+Reminders check for due words and lesson cards at 09:00, 14:00, and 19:00 in
+your configured time zone. They send at most one notification per review slot,
+only when something is due, and stay silent during quiet hours. Defaults are
+`Asia/Qyzylorda` and 22:00–08:00. Set these with `/timezone Region/City` and
+`/quiet 22:00 08:00`; use `/reminders off` or `/reminders on` to toggle them.
+The notification suggests a short session of up to 20 cards; you can stop at
+any point. These settings are stored in the same SQLite database.
+
+The review method uses active recall and spaced practice, both supported by a
+[systematic review](https://pubmed.ncbi.nlm.nih.gov/37615780/). Quiet hours are
+intended to protect sleep; a [memory meta-analysis](https://pubmed.ncbi.nlm.nih.gov/35404637/)
+found a benefit from sleep. The three clock times are practical defaults, not a
+research-proven optimum for every person.
 
 ## Configure and run
 
@@ -72,3 +111,20 @@ before normal and low-priority cards.
 - `/leeches` — suspended cards that have been missed repeatedly
 - `/note WORD_ID text` — save a personal mnemonic or memory hook
 - `/reset WORD_ID` — reset a suspended card to new after improving it
+- `/memory` — unknown words, lessons, and reminder menu
+- `/unknown` and `/unknownprompt` — collect words and generate an LLM prompt
+- `/lesson`, `/lessonprompt`, `/lessonimport`, `/lessons` — collect, create, and review lesson cards
+- `/settings`, `/timezone`, `/quiet`, `/reminders` — reminder controls
+
+## Code layout
+
+- `bot.py` — application entry point and handler registration
+- `wordbox/config.py` — environment settings and limits
+- `wordbox/storage.py` — vocabulary persistence and schema migration
+- `wordbox/scheduling.py` — review interval calculation
+- `wordbox/views.py` — vocabulary messages and buttons
+- `wordbox/handlers.py` — vocabulary Telegram flows
+- `wordbox/memory.py` — lesson and inbox persistence, reminder rules
+- `wordbox/memory_handlers.py` — memory Telegram flows and reminder worker
+
+Run the local checks with `.venv/bin/python -m unittest discover -s tests -v`.
