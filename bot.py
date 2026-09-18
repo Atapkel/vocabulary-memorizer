@@ -15,7 +15,7 @@ from wordbox.handlers import (
 )
 from wordbox.memory_handlers import (
     cmd_delete, cmd_lesson, cmd_lessonimport, cmd_lessonprompt, cmd_lessons,
-    cmd_memory, cmd_unknowns,
+    cmd_memory, cmd_jsonhelp, cmd_unknowns,
     cmd_quiet, cmd_reminders, cmd_settings, cmd_timezone, cmd_unknown,
     cmd_unknownprompt, on_memory_callback, reminder_loop,
 )
@@ -37,6 +37,7 @@ async def post_init(app: Application) -> None:
             BotCommand("stats", "See your review progress"),
             BotCommand("settings", "View reminder settings"),
             BotCommand("delete", "Remove a saved unknown word"),
+            BotCommand("jsonhelp", "See word and lesson JSON examples"),
         ])
     except TelegramError:
         logging.exception("Could not update Telegram command menu")
@@ -66,6 +67,7 @@ def main() -> None:
         "add": cmd_add, "prompt": cmd_prompt, "memory": cmd_memory,
         "unknown": cmd_unknown, "unknownprompt": cmd_unknownprompt,
         "unknowns": cmd_unknowns, "delete": cmd_delete,
+        "jsonhelp": cmd_jsonhelp,
         "lesson": cmd_lesson, "lessonprompt": cmd_lessonprompt,
         "lessonimport": cmd_lessonimport, "lessons": cmd_lessons,
         "settings": cmd_settings, "timezone": cmd_timezone,

@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, patch
 
 from telegram.error import BadRequest
 
-from wordbox import handlers, memory, memory_handlers, scheduling, storage, views
+from wordbox import guides, handlers, memory, memory_handlers, scheduling, storage, views
 from wordbox.telegram_ui import edit_text
 
 
@@ -57,6 +57,25 @@ class MemoryFlowTests(unittest.TestCase):
         self.assertTrue(memory.rate_lesson(card["id"], "good"))
         self.assertIsNone(memory.due_lesson())
         self.assertFalse(memory.rate_lesson(card["id"], "good"))
+
+    def test_json_guides_show_importable_examples(self):
+        added_words, skipped_words, _ = storage.add_words(guides.WORD_EXAMPLE)
+        added_lessons, skipped_lessons, _ = memory.import_lessons(guides.LESSON_EXAMPLE)
+        self.assertEqual((added_words, skipped_words), (1, 0))
+        self.assertEqual((added_lessons, skipped_lessons), (1, 0))
+
+        for text in (guides.word_guide_text(), guides.lesson_guide_text()):
+            self.assertLessEqual(len(text), 4096)
+            parser = TelegramHtmlParser()
+            parser.feed(text)
+            parser.close()
+            self.assertEqual(parser.stack, [])
+
+        root_buttons = [button.callback_data for row in views.main_keyboard().inline_keyboard for button in row]
+        guide_buttons = [button.callback_data for row in memory_handlers.guide_keyboard().inline_keyboard for button in row]
+        self.assertIn("memory|guides", root_buttons)
+        self.assertIn("memory|word_guide", guide_buttons)
+        self.assertIn("memory|lesson_guide", guide_buttons)
 
     def test_reminder_slots_and_quiet_hours(self):
         prefs = {"timezone": "Asia/Qyzylorda", "quiet_start": "22:00", "quiet_end": "08:00", "reminders": "on"}

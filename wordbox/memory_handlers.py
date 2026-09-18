@@ -12,6 +12,7 @@ from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
 from .config import ALLOWED_USER_ID
+from .guides import lesson_guide_text, word_guide_text
 from .memory import (
     collect, delete_unknown, delete_unknown_by_id, due_counts, due_lesson,
     import_lessons, inbox_count, inbox_items, unknown_words,
@@ -34,6 +35,8 @@ def memory_keyboard():
          InlineKeyboardButton("📖 Add note", callback_data="memory|lessons")],
         [InlineKeyboardButton("📝 Word prompt", callback_data="memory|word_prompt"),
          InlineKeyboardButton("📝 Lesson prompt", callback_data="memory|lesson_prompt")],
+        [InlineKeyboardButton("📋 Word JSON guide", callback_data="memory|word_guide"),
+         InlineKeyboardButton("📋 Lesson JSON guide", callback_data="memory|lesson_guide")],
         [InlineKeyboardButton("📥 Import words", callback_data="menu|add"),
          InlineKeyboardButton("📥 Import lessons", callback_data="memory|lesson_import")],
         [InlineKeyboardButton("📚 Word library", callback_data="menu|list"),
@@ -67,6 +70,7 @@ def unknown_list_view():
     keyboard = [[InlineKeyboardButton(f"🗑 {row['content'][:35]}", callback_data=f"memory|delete|{row['id']}")]
                 for row in rows]
     keyboard.append([InlineKeyboardButton("📝 Get LLM prompt", callback_data="memory|word_prompt")])
+    keyboard.append([InlineKeyboardButton("📋 Word JSON guide", callback_data="memory|word_guide")])
     keyboard.append([InlineKeyboardButton("📥 Import word cards", callback_data="menu|add")])
     keyboard.append([InlineKeyboardButton("⬅️ Words & lessons", callback_data="memory|home")])
     return (f"📥 <b>UNKNOWN WORDS</b>\n<i>{total} saved · showing the newest {len(rows)}</i>\n\n"
@@ -98,6 +102,29 @@ async def cmd_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_memory(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if allowed(update):
         await update.message.reply_text(section_text(), reply_markup=memory_keyboard(), parse_mode=ParseMode.HTML)
+
+
+def guide_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔤 Word JSON", callback_data="memory|word_guide"),
+         InlineKeyboardButton("📖 Lesson JSON", callback_data="memory|lesson_guide")],
+        [InlineKeyboardButton("📥 Import words", callback_data="menu|add"),
+         InlineKeyboardButton("📥 Import lessons", callback_data="memory|lesson_import")],
+        [InlineKeyboardButton("🏠 Main menu", callback_data="menu|home")],
+    ])
+
+
+async def cmd_jsonhelp(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not allowed(update):
+        return
+    kind = update.message.text.partition(" ")[2].strip().lower()
+    if kind == "word":
+        text = word_guide_text()
+    elif kind == "lesson":
+        text = lesson_guide_text()
+    else:
+        text = "📋 <b>JSON FORMAT GUIDES</b>\n\nChoose the card type you want to create. Each guide includes a copyable example and import steps."
+    await update.message.reply_text(text, reply_markup=guide_keyboard(), parse_mode=ParseMode.HTML)
 
 
 async def cmd_unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -326,6 +353,12 @@ async def on_memory_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     action = parts[1]
     if action == "home":
         await edit(section_text(), reply_markup=memory_keyboard(), parse_mode=ParseMode.HTML)
+    elif action == "guides":
+        await edit("📋 <b>JSON FORMAT GUIDES</b>\n\nChoose the card type you want to create. Each guide includes a copyable example and import steps.", reply_markup=guide_keyboard(), parse_mode=ParseMode.HTML)
+    elif action == "word_guide":
+        await edit(word_guide_text(), reply_markup=guide_keyboard(), parse_mode=ParseMode.HTML)
+    elif action == "lesson_guide":
+        await edit(lesson_guide_text(), reply_markup=guide_keyboard(), parse_mode=ParseMode.HTML)
     elif action == "word_list":
         text, keyboard = unknown_list_view()
         await edit(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)

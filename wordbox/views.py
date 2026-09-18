@@ -109,7 +109,8 @@ def main_keyboard():
          InlineKeyboardButton("📝 Add lesson note", callback_data="memory|lessons")],
         [InlineKeyboardButton("📊 My progress", callback_data="menu|stats"),
          InlineKeyboardButton("⏰ Reminders", callback_data="memory|settings")],
-        [InlineKeyboardButton("✨ More options", callback_data="memory|home")],
+        [InlineKeyboardButton("📋 JSON format guides", callback_data="memory|guides"),
+         InlineKeyboardButton("✨ More options", callback_data="memory|home")],
     ])
 
 

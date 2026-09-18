@@ -14,7 +14,8 @@ farther away. The learner never needs to choose or see an interval.
 ## Memory workflows
 
 The main menu puts reviews, unknown words, lesson notes, progress, and reminders
-up front. **More options** contains prompts, imports, the library, and games.
+up front. **JSON format guides** shows copyable examples for both card types;
+**More options** contains prompts, imports, the library, and games.
 Telegram's `/` command menu lists the main commands. The bot does not call an
 LLM or send your notes to one automatically.
 
@@ -136,6 +137,7 @@ ignores that field and reviews cards by due time.
 - `/memory` — unknown words, lessons, and reminder menu
 - `/unknown` and `/unknownprompt` — collect words and generate an LLM prompt
 - `/unknowns` and `/delete word` — view and remove saved unknown words
+- `/jsonhelp` — open word and lesson JSON format guides (`/jsonhelp word` or `/jsonhelp lesson` for a specific example)
 - `/lesson`, `/lessonprompt`, `/lessonimport`, `/lessons` — collect, create, and review lesson cards
 - `/settings`, `/timezone`, `/quiet`, `/reminders` — reminder controls
 
